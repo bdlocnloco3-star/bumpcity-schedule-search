@@ -364,7 +364,8 @@ if st.button("月間スケジュールを抽出", type="primary", use_container_
                         break
                 # If several event entries exist, output each with the best available time.
                 for event in events:
-                    output_lines.append(f"{day_num}（{['月','火','水','木','金','土','日'][dt.weekday()]}）{(' ' + time_text) if time_text else ''} {event}".strip())
+                        holiday_mark = "・祝" if jpholiday.is_holiday(dt) else ""
+                        output_lines.append(f"{day_num}（{['月','火','水','木','金','土','日'][dt.weekday()]}{holiday_mark}）{(' ' + time_text) if time_text else ''} {event}".strip())
 
             result_text = "\n".join(output_lines)
             st.session_state["monthly_result_text"] = result_text

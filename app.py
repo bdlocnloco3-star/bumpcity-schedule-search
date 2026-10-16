@@ -368,6 +368,9 @@ if st.button("月間スケジュールを抽出", type="primary", use_container_
 
             result_text = "\n".join(output_lines)
             st.session_state["monthly_result_text"] = result_text
+            # Keep the displayed text area synchronized with each new extraction.
+            # A keyed Streamlit widget otherwise retains its previous value on reruns.
+            st.session_state["monthly_result_display"] = result_text
             st.session_state["monthly_result_label"] = f"{int(monthly_year)}年{int(monthly_month)}月"
             st.session_state["monthly_result_url"] = month_url
             st.session_state["monthly_encoding"] = month_encoding

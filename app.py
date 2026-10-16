@@ -9,7 +9,7 @@ import streamlit as st
 from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="Bump City スケジュール検索", layout="wide")
-st.title(""Bump City スケジュール検索")
+st.title("Bump City スケジュール検索")
 st.write("指定期間の日別ページを取得し、入力した任意の文字列を検索します。")
 
 st.info(

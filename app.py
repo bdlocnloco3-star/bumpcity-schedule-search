@@ -1,3 +1,4 @@
+```python
 import time
 import re
 from datetime import date, timedelta
@@ -8,8 +9,8 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="Bump City スケジュール検索", layout="wide")
-st.title("Bump City スケジュール検索")
+st.set_page_config(page_title="ライブスケジュール文字列検索", layout="wide")
+st.title("ライブスケジュール文字列検索")
 st.write("指定期間の日別ページを取得し、入力した任意の文字列を検索します。")
 
 st.info(
@@ -21,6 +22,14 @@ with st.sidebar:
     st.header("取得設定")
     base_url = st.text_input("日別ページURL", value="http://tomo-kaz.com/calendar/schedule.cgi")
     fixed_params = st.text_input("固定パラメータ", value="form=2")
+    
+    # 検索モードの選択（AND / OR）
+    search_mode = st.selectbox(
+        "複数ワードの検索方法（スペース区切り）",
+        ["AND検索（すべて含む）", "OR検索（いずれかを含む）", "完全一致（スペース含む文字列）"],
+        index=0
+    )
+
     encoding_choice = st.selectbox(
         "文字コード",
         ["自動判定", "cp932", "shift_jis", "euc_jp", "utf-8", "iso-2022-jp"],
@@ -33,11 +42,15 @@ with st.sidebar:
 
 c1, c2 = st.columns(2)
 with c1:
-    start_date = st.date_input("開始日", value=date.today())
+    start_date = st.date_input("開始日", value=date(2026, 11, 1))
 with c2:
-    end_date = st.date_input("終了日", value=date.today())
+    end_date = st.date_input("終了日", value=date(2026, 11, 30))
 
-query = st.text_input("検索する文字列", value="", placeholder="例：Atsushi、Spain、(ds)、イベント名や曲名の一部など")
+query = st.text_input(
+    "検索する文字列", 
+    value="", 
+    placeholder="例：ギター セッション（複数ワード可）、Hall & Oats、曲名の一部など"
+)
 case_sensitive = st.checkbox("英字の大文字・小文字を区別する", value=False)
 show_page_text = st.checkbox("検索結果にページ本文も表示する", value=False)
 
@@ -59,8 +72,6 @@ def decode_html(response, forced):
     if forced != "自動判定":
         return response.content.decode(forced, errors="replace"), forced
 
-    # 古い日本語CGIではCP932/Shift_JISが使われることが多い。
-    # HTTPヘッダーの誤ったcharset指定を優先しない。
     raw = response.content
     head = raw[:8192].lower()
     declared = None
@@ -120,7 +131,11 @@ if st.button("検索開始", type="primary", use_container_width=True):
         results, errors = [], []
         progress = st.progress(0, text="検索準備中…")
         current = st.empty()
-        needle = query if case_sensitive else query.casefold()
+        
+        # 検索ワードの分解・準備（全角・半角スペースで分割）
+        raw_query = query if case_sensitive else query.casefold()
+        # スペースで分割（空文字を除外）
+        tokens = [t for t in re.split(r'[\s ]+', raw_query) if t]
 
         for i in range(days):
             d = start_date + timedelta(days=i)
@@ -129,10 +144,37 @@ if st.button("検索開始", type="primary", use_container_width=True):
             try:
                 text, title, encoding, status = fetch(url, timeout, encoding_choice)
                 haystack = text if case_sensitive else text.casefold()
-                pos = haystack.find(needle)
-                if pos >= 0:
-                    left = max(0, pos - 120)
-                    right = min(len(text), pos + len(query.strip()) + 120)
+                
+                # 検索判定ロジック
+                is_matched = False
+                match_pos = -1
+                match_length = len(query.strip())
+
+                if search_mode == "完全一致（スペース含む文字列）" or len(tokens) <= 1:
+                    # そのままの部分一致（スペースを含む語句もそのまま探す）
+                    pos = haystack.find(raw_query)
+                    if pos >= 0:
+                        is_matched = True
+                        match_pos = pos
+                        match_length = len(raw_query)
+                elif search_mode == "AND検索（すべて含む）":
+                    # すべての単語が含まれているかチェック
+                    if all(token in haystack for token in tokens):
+                        is_matched = True
+                        # 最初に見つかったトークンの位置をスニペットの基準にする
+                        match_pos = haystack.find(tokens[0])
+                        match_length = len(tokens[0])
+                elif search_mode == "OR検索（いずれかを含む）":
+                    # いずれかの単語が含まれているかチェック
+                    matched_tokens = [t for t in tokens if t in haystack]
+                    if matched_tokens:
+                        is_matched = True
+                        match_pos = haystack.find(matched_tokens[0])
+                        match_length = len(matched_tokens[0])
+
+                if is_matched:
+                    left = max(0, match_pos - 120)
+                    right = min(len(text), match_pos + match_length + 120)
                     snippet = text[left:right].replace("\n", " / ")
                     if left:
                         snippet = "…" + snippet
@@ -191,3 +233,5 @@ if "results_v2" in st.session_state:
         st.dataframe(err_df, use_container_width=True, hide_index=True)
         st.download_button("エラー一覧をCSVで保存", err_df.to_csv(index=False).encode("utf-8-sig"),
                            "schedule_search_errors.csv", "text/csv")
+
+```

@@ -233,4 +233,3 @@ if "results_v2" in st.session_state:
         st.download_button("エラー一覧をCSVで保存", err_df.to_csv(index=False).encode("utf-8-sig"),
                            "schedule_search_errors.csv", "text/csv")
 
-```

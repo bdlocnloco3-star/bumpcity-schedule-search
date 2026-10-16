@@ -1,4 +1,3 @@
-```python
 import time
 import re
 from datetime import date, timedelta

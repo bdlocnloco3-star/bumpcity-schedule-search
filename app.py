@@ -33,9 +33,9 @@ with st.sidebar:
 
 c1, c2 = st.columns(2)
 with c1:
-    start_date = st.date_input("開始日", value=date(2026, 11, 1))
+    start_date = st.date_input("開始日", value=date.today())
 with c2:
-    end_date = st.date_input("終了日", value=date(2026, 11, 30))
+    end_date = st.date_input("終了日", value=date.today())
 
 query = st.text_input("検索する文字列", value="", placeholder="例：Atsushi、Spain、(ds)、イベント名や曲名の一部など")
 case_sensitive = st.checkbox("英字の大文字・小文字を区別する", value=False)

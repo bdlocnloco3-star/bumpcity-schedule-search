@@ -37,7 +37,7 @@ with c1:
 with c2:
     end_date = st.date_input("終了日", value=date(2026, 11, 30))
 
-query = st.text_input("検索する文字列", value="", placeholder="例：グッチ、Spain、ギター、曲名の一部など")
+query = st.text_input("検索する文字列", value="", placeholder="例：Atsushi、Spain、(ds)、イベント名や曲名の一部など")
 case_sensitive = st.checkbox("英字の大文字・小文字を区別する", value=False)
 show_page_text = st.checkbox("検索結果にページ本文も表示する", value=False)
 

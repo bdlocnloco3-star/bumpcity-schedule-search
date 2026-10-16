@@ -131,6 +131,123 @@ def fetch(url, timeout_seconds, forced_encoding):
     text = "\n".join(s.strip() for s in soup.get_text("\n").splitlines() if s.strip())
     return text, title, enc, response.status_code
 
+if st.button("検索開始", type="primary", use_container_width=True):
+    if start_date > end_date:
+        st.error("開始日は終了日以前にしてください。")
+    elif not query.strip():
+        st.error("検索する文字列を入力してください。")
+    elif (end_date - start_date).days + 1 > max_days:
+        st.error(f"検索期間が上限の{max_days}日を超えています。")
+    elif not base_url.strip().startswith(("http://", "https://")):
+        st.error("日別ページURLは http:// または https:// で始めてください。")
+    else:
+        days = (end_date - start_date).days + 1
+        results, errors = [], []
+        progress = st.progress(0, text="検索準備中…")
+        current = st.empty()
+        
+        # 検索ワードの分解・準備（全角・半角スペースで分割）
+        raw_query = query if case_sensitive else query.casefold()
+        # スペースで分割（空文字を除外）
+        tokens = [t for t in re.split(r'[\s ]+', raw_query) if t]
+
+        for i in range(days):
+            d = start_date + timedelta(days=i)
+            url = make_url(base_url.strip(), fixed_params.strip(), d)
+            current.write(f"確認中：{d.isoformat()}（{i+1}/{days}日目） — 現在のヒット件数：{len(results)}件")
+            try:
+                text, title, encoding, status = fetch(url, timeout, encoding_choice)
+                haystack = text if case_sensitive else text.casefold()
+                
+                # 検索判定ロジック
+                is_matched = False
+                match_pos = -1
+                match_length = len(query.strip())
+
+                if search_mode == "完全一致（スペース含む文字列）" or len(tokens) <= 1:
+                    # そのままの部分一致（スペースを含む語句もそのまま探す）
+                    pos = haystack.find(raw_query)
+                    if pos >= 0:
+                        is_matched = True
+                        match_pos = pos
+                        match_length = len(raw_query)
+                elif search_mode == "AND検索（すべて含む）":
+                    # すべての単語が含まれているかチェック
+                    if all(token in haystack for token in tokens):
+                        is_matched = True
+                        # 最初に見つかったトークンの位置をスニペットの基準にする
+                        match_pos = haystack.find(tokens[0])
+                        match_length = len(tokens[0])
+                elif search_mode == "OR検索（いずれかを含む）":
+                    # いずれかの単語が含まれているかチェック
+                    matched_tokens = [t for t in tokens if t in haystack]
+                    if matched_tokens:
+                        is_matched = True
+                        match_pos = haystack.find(matched_tokens[0])
+                        match_length = len(matched_tokens[0])
+
+                if is_matched:
+                    left = max(0, match_pos - 120)
+                    right = min(len(text), match_pos + match_length + 120)
+                    snippet = text[left:right].replace("\n", " / ")
+                    if left:
+                        snippet = "…" + snippet
+                    if right < len(text):
+                        snippet += "…"
+                    results.append({
+                        "日付": d.isoformat(),
+                        "ページタイトル": title,
+                        "該当箇所": snippet,
+                        "詳細ページ": url,
+                        "文字コード": encoding,
+                        "本文": text,
+                    })
+            except requests.HTTPError as e:
+                code = e.response.status_code if e.response is not None else "HTTP error"
+                errors.append({"日付": d.isoformat(), "URL": url, "エラー": f"HTTP {code}: {e}"})
+            except Exception as e:
+                errors.append({"日付": d.isoformat(), "URL": url, "エラー": f"{type(e).__name__}: {e}"})
+            progress.progress((i+1)/days, text=f"{i+1}/{days}日確認済み（ヒット：{len(results)}件）")
+            if i < days - 1:
+                time.sleep(float(delay))
+
+        progress.empty()
+        current.empty()
+        st.session_state["results_v2"] = results
+        st.session_state["errors_v2"] = errors
+        st.session_state["show_text_v2"] = show_page_text
+        st.session_state["range_v2"] = f"{start_date.isoformat()} ～ {end_date.isoformat()}"
+        st.session_state["query_v2"] = query.strip()
+
+if "results_v2" in st.session_state:
+    results = st.session_state["results_v2"]
+    errors = st.session_state["errors_v2"]
+    st.subheader("検索結果")
+    st.write(f"検索語：**{st.session_state['query_v2']}** ／ 対象期間：{st.session_state['range_v2']} ／ 該当ページ：{len(results)}件")
+
+    if results:
+        df = pd.DataFrame([{k: r[k] for k in ["日付", "ページタイトル", "該当箇所", "詳細ページ"]} for r in results])
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.download_button("検索結果をCSVで保存", df.to_csv(index=False).encode("utf-8-sig"),
+                           "schedule_search_results.csv", "text/csv")
+        for r in results:
+            with st.expander(f"{r['日付']} — {r['ページタイトル'] or '詳細'}"):
+                st.markdown(f"[詳細ページを開く]({r['詳細ページ']})")
+                st.write(r["該当箇所"])
+                st.caption(f"文字コード：{r['文字コード']}")
+                if st.session_state["show_text_v2"]:
+                    st.text_area("ページ本文", r["本文"], height=300, key=f"body_{r['日付']}")
+    else:
+        st.warning("検索語に一致するページはありませんでした。")
+
+    if errors:
+        st.subheader(f"取得エラー（{len(errors)}件）")
+        st.warning("エラーになった日付は確認できていません。「該当なし」とは判定できません。")
+        err_df = pd.DataFrame(errors)
+        st.dataframe(err_df, use_container_width=True, hide_index=True)
+        st.download_button("エラー一覧をCSVで保存", err_df.to_csv(index=False).encode("utf-8-sig"),
+                           "schedule_search_errors.csv", "text/csv")
+
 # 月間スケジュール抽出（カスタマイズ済みの日別検索機能はそのまま維持）
 st.divider()
 st.header("月間スケジュール抽出")
@@ -260,121 +377,4 @@ if "monthly_result_text" in st.session_state:
         )
     else:
         st.warning("対象となるイベントが見つかりませんでした。取得した表の構造や文字コードを確認してください。")
-
-if st.button("検索開始", type="primary", use_container_width=True):
-    if start_date > end_date:
-        st.error("開始日は終了日以前にしてください。")
-    elif not query.strip():
-        st.error("検索する文字列を入力してください。")
-    elif (end_date - start_date).days + 1 > max_days:
-        st.error(f"検索期間が上限の{max_days}日を超えています。")
-    elif not base_url.strip().startswith(("http://", "https://")):
-        st.error("日別ページURLは http:// または https:// で始めてください。")
-    else:
-        days = (end_date - start_date).days + 1
-        results, errors = [], []
-        progress = st.progress(0, text="検索準備中…")
-        current = st.empty()
-        
-        # 検索ワードの分解・準備（全角・半角スペースで分割）
-        raw_query = query if case_sensitive else query.casefold()
-        # スペースで分割（空文字を除外）
-        tokens = [t for t in re.split(r'[\s ]+', raw_query) if t]
-
-        for i in range(days):
-            d = start_date + timedelta(days=i)
-            url = make_url(base_url.strip(), fixed_params.strip(), d)
-            current.write(f"確認中：{d.isoformat()}（{i+1}/{days}日目） — 現在のヒット件数：{len(results)}件")
-            try:
-                text, title, encoding, status = fetch(url, timeout, encoding_choice)
-                haystack = text if case_sensitive else text.casefold()
-                
-                # 検索判定ロジック
-                is_matched = False
-                match_pos = -1
-                match_length = len(query.strip())
-
-                if search_mode == "完全一致（スペース含む文字列）" or len(tokens) <= 1:
-                    # そのままの部分一致（スペースを含む語句もそのまま探す）
-                    pos = haystack.find(raw_query)
-                    if pos >= 0:
-                        is_matched = True
-                        match_pos = pos
-                        match_length = len(raw_query)
-                elif search_mode == "AND検索（すべて含む）":
-                    # すべての単語が含まれているかチェック
-                    if all(token in haystack for token in tokens):
-                        is_matched = True
-                        # 最初に見つかったトークンの位置をスニペットの基準にする
-                        match_pos = haystack.find(tokens[0])
-                        match_length = len(tokens[0])
-                elif search_mode == "OR検索（いずれかを含む）":
-                    # いずれかの単語が含まれているかチェック
-                    matched_tokens = [t for t in tokens if t in haystack]
-                    if matched_tokens:
-                        is_matched = True
-                        match_pos = haystack.find(matched_tokens[0])
-                        match_length = len(matched_tokens[0])
-
-                if is_matched:
-                    left = max(0, match_pos - 120)
-                    right = min(len(text), match_pos + match_length + 120)
-                    snippet = text[left:right].replace("\n", " / ")
-                    if left:
-                        snippet = "…" + snippet
-                    if right < len(text):
-                        snippet += "…"
-                    results.append({
-                        "日付": d.isoformat(),
-                        "ページタイトル": title,
-                        "該当箇所": snippet,
-                        "詳細ページ": url,
-                        "文字コード": encoding,
-                        "本文": text,
-                    })
-            except requests.HTTPError as e:
-                code = e.response.status_code if e.response is not None else "HTTP error"
-                errors.append({"日付": d.isoformat(), "URL": url, "エラー": f"HTTP {code}: {e}"})
-            except Exception as e:
-                errors.append({"日付": d.isoformat(), "URL": url, "エラー": f"{type(e).__name__}: {e}"})
-            progress.progress((i+1)/days, text=f"{i+1}/{days}日確認済み（ヒット：{len(results)}件）")
-            if i < days - 1:
-                time.sleep(float(delay))
-
-        progress.empty()
-        current.empty()
-        st.session_state["results_v2"] = results
-        st.session_state["errors_v2"] = errors
-        st.session_state["show_text_v2"] = show_page_text
-        st.session_state["range_v2"] = f"{start_date.isoformat()} ～ {end_date.isoformat()}"
-        st.session_state["query_v2"] = query.strip()
-
-if "results_v2" in st.session_state:
-    results = st.session_state["results_v2"]
-    errors = st.session_state["errors_v2"]
-    st.subheader("検索結果")
-    st.write(f"検索語：**{st.session_state['query_v2']}** ／ 対象期間：{st.session_state['range_v2']} ／ 該当ページ：{len(results)}件")
-
-    if results:
-        df = pd.DataFrame([{k: r[k] for k in ["日付", "ページタイトル", "該当箇所", "詳細ページ"]} for r in results])
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        st.download_button("検索結果をCSVで保存", df.to_csv(index=False).encode("utf-8-sig"),
-                           "schedule_search_results.csv", "text/csv")
-        for r in results:
-            with st.expander(f"{r['日付']} — {r['ページタイトル'] or '詳細'}"):
-                st.markdown(f"[詳細ページを開く]({r['詳細ページ']})")
-                st.write(r["該当箇所"])
-                st.caption(f"文字コード：{r['文字コード']}")
-                if st.session_state["show_text_v2"]:
-                    st.text_area("ページ本文", r["本文"], height=300, key=f"body_{r['日付']}")
-    else:
-        st.warning("検索語に一致するページはありませんでした。")
-
-    if errors:
-        st.subheader(f"取得エラー（{len(errors)}件）")
-        st.warning("エラーになった日付は確認できていません。「該当なし」とは判定できません。")
-        err_df = pd.DataFrame(errors)
-        st.dataframe(err_df, use_container_width=True, hide_index=True)
-        st.download_button("エラー一覧をCSVで保存", err_df.to_csv(index=False).encode("utf-8-sig"),
-                           "schedule_search_errors.csv", "text/csv")
 

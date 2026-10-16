@@ -251,7 +251,7 @@ if "results_v2" in st.session_state:
 # 月間スケジュール抽出（カスタマイズ済みの日別検索機能はそのまま維持）
 st.divider()
 st.header("月間スケジュール抽出")
-st.write("指定した月の表から、金曜・土曜・日曜・祝日のイベントをプレーンテキストにします。")
+st.write("対象にする曜日・祝日を選び、指定した月のイベントをプレーンテキストにします。")
 mc1, mc2 = st.columns(2)
 with mc1:
     monthly_year = st.number_input("対象年", min_value=1900, max_value=2200, value=date.today().year, step=1, key="monthly_year")
@@ -261,6 +261,17 @@ monthly_url = st.text_input(
     "月間ページURL", value="http://tomo-kaz.com/calendar/webcal.cgi", key="monthly_url"
 )
 monthly_fixed_params = st.text_input("月間ページの固定パラメータ", value="form=2", key="monthly_fixed_params")
+
+st.caption("抽出対象")
+weekday_columns = st.columns(7)
+weekday_labels = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
+weekday_defaults = [False, False, False, False, True, True, True]
+selected_weekdays = []
+for i, (col, label, default) in enumerate(zip(weekday_columns, weekday_labels, weekday_defaults)):
+    with col:
+        if st.checkbox(label, value=default, key=f"monthly_weekday_{i}"):
+            selected_weekdays.append(i)
+include_holidays = st.checkbox("日本の祝日も含める", value=True, key="monthly_include_holidays")
 
 
 def make_month_url(base, fixed, year, month):
@@ -329,8 +340,8 @@ if st.button("月間スケジュールを抽出", type="primary", use_container_
                     dt = date(int(monthly_year), int(monthly_month), day_num)
                 except ValueError:
                     continue
-                # Trust the actual calendar date for weekday filtering; include Japanese holidays.
-                if dt.weekday() not in (4, 5, 6) and dt not in holiday_dates:
+                # Use the selected weekdays and optional Japanese public holidays.
+                if dt.weekday() not in selected_weekdays and not (include_holidays and dt in holiday_dates):
                     continue
                 if not schedule_lines:
                     continue

@@ -8,13 +8,12 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="ライブスケジュール文字列検索", layout="wide")
-st.title("ライブスケジュール文字列検索")
-st.write("指定期間の日別ページを取得し、入力した任意の文字列を検索します。")
+st.set_page_config(page_title="Bump City スケジュール検索", layout="wide")
+st.title("Bump City スケジュール検索")
+st.write("バンプ HP のスケジュールページから任意の文字列を検索します。")
 
 st.info(
-    "文字化け対策として、文字コードを自動判定しつつ Shift_JIS / CP932 / EUC-JP / UTF-8 を候補にして解析します。"
-    "それでも文字化けする場合は、下の「文字コードを指定」で切り替えてください。"
+    "文字化けする場合は、左の「文字コードを指定」で切り替えてください。"
 )
 
 with st.sidebar:
@@ -45,21 +44,23 @@ with c1:
 with c2:
     end_date = st.date_input("終了日", value=date.today())
     
+query = st.text_input(
+    "検索する文字列", 
+    value="", 
+    placeholder="イベント名、曲名の一部など"
+)
+
 with st.expander("🔍 検索のコツ・入力例を見る"):
     st.markdown("""
     サイドバーで選択した「検索方法」に合わせて、以下のように文字を入力してください。
     * **AND検索（すべて含む）**：単語をスペースで区切って入力します。
-      * *入力例:* `ギター セッション` （「ギター」と「セッション」の両方を含むページがヒット）
+      * *入力例:* `フュージョン セッション` （「フュージョン」と「セッション」の両方を含むページがヒット）
     * **OR検索（いずれかを含む）**：単語をスペースで区切って入力します。
-      * *入力例:* `ギター ベース` （「ギター」または「ベース」のどちらかを含むページがヒット）
+      * *入力例:* `Jazz Rock` （「Jazz」または「Rock」のどちらかを含むページがヒット）
     * **完全一致（スペース含む文字列・フレーズ）**：サイドバーで「完全一致」を選び、スペースを含めた一続きの言葉を入力します。
-      * *入力例:* `Hall Oats` や `Atsushi BD` （スペースを挟んだままの並びで検索）
+      * *入力例:* `So What` や `Atsushi BD` （スペースを挟んだままの並びで検索）
     """)
-query = st.text_input(
-    "検索する文字列", 
-    value="", 
-    placeholder="例：ギター セッション（複数ワード可）、Hall & Oats、曲名の一部など"
-)
+    
 case_sensitive = st.checkbox("英字の大文字・小文字を区別する", value=False)
 show_page_text = st.checkbox("検索結果にページ本文も表示する", value=False)
 

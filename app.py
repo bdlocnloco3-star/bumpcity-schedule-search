@@ -2,6 +2,10 @@ import time
 import re
 from datetime import date, timedelta
 from urllib.parse import urlencode
+import calendar
+import html as html_lib
+
+import jpholiday
 
 import pandas as pd
 import requests
@@ -126,6 +130,136 @@ def fetch(url, timeout_seconds, forced_encoding):
         tag.decompose()
     text = "\n".join(s.strip() for s in soup.get_text("\n").splitlines() if s.strip())
     return text, title, enc, response.status_code
+
+# 月間スケジュール抽出（カスタマイズ済みの日別検索機能はそのまま維持）
+st.divider()
+st.header("月間スケジュール抽出")
+st.write("指定した月の表から、金曜・土曜・日曜・祝日のイベントをプレーンテキストにします。")
+mc1, mc2 = st.columns(2)
+with mc1:
+    monthly_year = st.number_input("対象年", min_value=1900, max_value=2200, value=date.today().year, step=1, key="monthly_year")
+with mc2:
+    monthly_month = st.selectbox("対象月", list(range(1, 13)), index=date.today().month - 1, key="monthly_month")
+monthly_url = st.text_input(
+    "月間ページURL", value="http://tomo-kaz.com/calendar/webcal.cgi", key="monthly_url"
+)
+monthly_fixed_params = st.text_input("月間ページの固定パラメータ", value="form=2", key="monthly_fixed_params")
+
+
+def make_month_url(base, fixed, year, month):
+    params = {}
+    for piece in fixed.split("&"):
+        piece = piece.strip()
+        if not piece:
+            continue
+        if "=" in piece:
+            k, v = piece.split("=", 1)
+            params[k] = v
+        else:
+            params[piece] = ""
+    params.update({"year": str(int(year)), "mon": str(int(month))})
+    return base + ("&" if "?" in base else "?") + urlencode(params)
+
+
+def fetch_month_rows(url, timeout_seconds, forced_encoding):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36"
+    }
+    response = requests.get(url, headers=headers, timeout=timeout_seconds)
+    response.raise_for_status()
+    decoded, encoding = decode_html(response, forced_encoding)
+    soup = BeautifulSoup(decoded, "html.parser")
+
+    def cell_lines(cell):
+        # Keep explicit line breaks because times and events may be arranged on matching lines.
+        raw = re.sub(r"<br\s*/?>", "\n", cell.decode_contents(), flags=re.I)
+        frag = BeautifulSoup(raw, "html.parser")
+        return [html_lib.unescape(x).strip() for x in frag.get_text("\n").splitlines() if x.strip()]
+
+    rows = []
+    for tr in soup.find_all("tr"):
+        cells = tr.find_all(["td", "th"], recursive=False)
+        if len(cells) < 5:
+            continue
+        day_match = re.search(r"\d+", cells[0].get_text(" ", strip=True))
+        if not day_match:
+            continue
+        day_num = int(day_match.group())
+        weekday_text = cells[1].get_text(" ", strip=True)
+        time_lines = cell_lines(cells[3])
+        schedule_lines = cell_lines(cells[4])
+        rows.append((day_num, weekday_text, time_lines, schedule_lines))
+    return rows, encoding, response.status_code
+
+
+if st.button("月間スケジュールを抽出", type="primary", use_container_width=True):
+    if not monthly_url.strip().startswith(("http://", "https://")):
+        st.error("月間ページURLは http:// または https:// で始めてください。")
+    else:
+        month_url = make_month_url(monthly_url.strip(), monthly_fixed_params.strip(), monthly_year, monthly_month)
+        try:
+            with st.spinner(f"{int(monthly_year)}年{int(monthly_month)}月の表を取得中…"):
+                month_rows, month_encoding, month_status = fetch_month_rows(month_url, timeout, encoding_choice)
+            output_lines = []
+            errors_in_rows = []
+            holiday_dates = {
+                date(int(monthly_year), int(monthly_month), d)
+                for d in range(1, calendar.monthrange(int(monthly_year), int(monthly_month))[1] + 1)
+                if jpholiday.is_holiday(date(int(monthly_year), int(monthly_month), d))
+            }
+            for day_num, weekday_text, time_lines, schedule_lines in month_rows:
+                try:
+                    dt = date(int(monthly_year), int(monthly_month), day_num)
+                except ValueError:
+                    continue
+                # Trust the actual calendar date for weekday filtering; include Japanese holidays.
+                if dt.weekday() not in (4, 5, 6) and dt not in holiday_dates:
+                    continue
+                if not schedule_lines:
+                    continue
+                # Ignore memorial-day annotations, holiday labels and closure-only rows.
+                events = []
+                for line in schedule_lines:
+                    line = re.sub(r"\s*/\s*開催頻度：.*$", "", line).strip()
+                    if not line or "命日" in line or "【休業日】" in line:
+                        continue
+                    if re.fullmatch(r"祝日|文化の日|勤労感謝の日|.*の日", line) and jpholiday.is_holiday(dt):
+                        continue
+                    events.append(line)
+                if not events:
+                    continue
+                time_text = ""
+                for line in time_lines:
+                    m = re.search(r"\d{1,2}:\d{2}\s*[～〜~]?", line)
+                    if m:
+                        time_text = m.group().replace(" ", "")
+                        break
+                # If several event entries exist, output each with the best available time.
+                for event in events:
+                    output_lines.append(f"{day_num}（{['月','火','水','木','金','土','日'][dt.weekday()]}）{(' ' + time_text) if time_text else ''} {event}".strip())
+
+            result_text = "\n".join(output_lines)
+            st.session_state["monthly_result_text"] = result_text
+            st.session_state["monthly_result_label"] = f"{int(monthly_year)}年{int(monthly_month)}月"
+            st.session_state["monthly_result_url"] = month_url
+            st.session_state["monthly_encoding"] = month_encoding
+            st.session_state["monthly_result_count"] = len(output_lines)
+        except Exception as e:
+            st.error(f"月間スケジュールを取得できませんでした：{type(e).__name__}: {e}")
+
+if "monthly_result_text" in st.session_state:
+    st.subheader(f"抽出結果：{st.session_state['monthly_result_label']}")
+    st.caption(f"対象ページ：{st.session_state['monthly_result_url']} ／ 文字コード：{st.session_state['monthly_encoding']}")
+    if st.session_state["monthly_result_text"]:
+        st.text_area("プレーンテキスト（コピーできます）", st.session_state["monthly_result_text"], height=320, key="monthly_result_display")
+        st.download_button(
+            "テキストファイルで保存",
+            st.session_state["monthly_result_text"].encode("utf-8-sig"),
+            file_name=f"schedule_{st.session_state['monthly_result_label'].replace('年','_').replace('月','')}.txt",
+            mime="text/plain",
+        )
+    else:
+        st.warning("対象となるイベントが見つかりませんでした。取得した表の構造や文字コードを確認してください。")
 
 if st.button("検索開始", type="primary", use_container_width=True):
     if start_date > end_date:

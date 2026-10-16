@@ -150,7 +150,7 @@ if st.button("検索開始", type="primary", use_container_width=True):
         for i in range(days):
             d = start_date + timedelta(days=i)
             url = make_url(base_url.strip(), fixed_params.strip(), d)
-            current.write(f"確認中：{d.isoformat()}（{i+1}/{days}）")
+            current.write(f"確認中：{d.isoformat()}（{i+1}/{days}日目） — 現在のヒット件数：{len(results)}件")
             try:
                 text, title, encoding, status = fetch(url, timeout, encoding_choice)
                 haystack = text if case_sensitive else text.casefold()
@@ -203,7 +203,7 @@ if st.button("検索開始", type="primary", use_container_width=True):
                 errors.append({"日付": d.isoformat(), "URL": url, "エラー": f"HTTP {code}: {e}"})
             except Exception as e:
                 errors.append({"日付": d.isoformat(), "URL": url, "エラー": f"{type(e).__name__}: {e}"})
-            progress.progress((i+1)/days, text=f"{i+1}/{days}日確認済み")
+            progress.progress((i+1)/days, text=f"{i+1}/{days}日確認済み（ヒット：{len(results)}件）")
             if i < days - 1:
                 time.sleep(float(delay))
 

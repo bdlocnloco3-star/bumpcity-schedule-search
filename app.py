@@ -41,10 +41,20 @@ with st.sidebar:
 
 c1, c2 = st.columns(2)
 with c1:
-    start_date = st.date_input("開始日", value=date(2026, 11, 1))
+    start_date = st.date_input("開始日", value=date.today())
 with c2:
-    end_date = st.date_input("終了日", value=date(2026, 11, 30))
-
+    end_date = st.date_input("終了日", value=date.today())
+    
+with st.expander("🔍 検索のコツ・入力例を見る"):
+    st.markdown("""
+    サイドバーで選択した「検索方法」に合わせて、以下のように文字を入力してください。
+    * **AND検索（すべて含む）**：単語をスペースで区切って入力します。
+      * *入力例:* `ギター セッション` （「ギター」と「セッション」の両方を含むページがヒット）
+    * **OR検索（いずれかを含む）**：単語をスペースで区切って入力します。
+      * *入力例:* `ギター ベース` （「ギター」または「ベース」のどちらかを含むページがヒット）
+    * **完全一致（スペース含む文字列・フレーズ）**：サイドバーで「完全一致」を選び、スペースを含めた一続きの言葉を入力します。
+      * *入力例:* `Hall Oats` や `Atsushi BD` （スペースを挟んだままの並びで検索）
+    """)
 query = st.text_input(
     "検索する文字列", 
     value="", 
